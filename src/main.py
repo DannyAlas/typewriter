@@ -1,12 +1,15 @@
+from audioop import mul, reverse
+import imp
 import drawsvg as draw
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-
+from src.utils import get_characters_and_times
 app = FastAPI()
-app.mount("/typewriter-demo", StaticFiles(directory="demo"), name="static")
-templates = Jinja2Templates(directory="demo")
+
+app.mount("/typewriter-demo", StaticFiles(directory="src/demo"), name="static")
+templates = Jinja2Templates(directory="src/demo")
 
 @app.get("/typewriter-demo")
 async def read_item(request: Request):
@@ -30,13 +33,20 @@ def main(
     pause: int = 1000,
     lines: str = "The+five+boxing+wizards+jump+quickly;How+vexingly+quick+daft+zebras+jump",
 ) -> StreamingResponse:
+
+    true_duration = (lines.count(";")+2 * pause) + duration
+
+    lines_list = lines.split(";")
+
+    total_characters, display_time = get_characters_and_times(lines_list, true_duration, multiline, pause)
+    
     d = draw.Drawing(
         width,
         height,
         origin=(0, 0),
         animation_config=draw.types.SyncedAnimationConfig(
-            duration=(lines.count(";")+1 * pause/1000) + duration/1000
-        ),
+            duration=display_time[len(display_time)-1],
+        )
     )
 
     # FONTS
@@ -53,7 +63,6 @@ def main(
             y = (height / 2 - (size * (lines.count(";")+1)) / 2) + 17 
         else:
             y = height / 2 + size / 3
-            print("AHHHHHHHHH", y)
     else:
         y = size
     if center:
@@ -63,59 +72,21 @@ def main(
     else:
         center = False
         x = 0
+        draw.native_animation.animate_text_sequence(
+            d,
+            display_time,
+            total_characters,
+            size,
+            x,
+            y,
+            font_family=font,
+            font_weight=weight,
+            font_style=style,
+            fill=f"#{color}",
+            center=center,
+        )
 
-    # ANIMATION
-    if not multiline:
-        characters = []
-        for i in range(len(lines)):
-            if i == 0:
-                characters.append(lines[i])
-            elif lines[i] == ";":
-                characters.append("")
-            else:
-                characters.append(characters[i - 1] + lines[i])
-    else:
-        characters = []
-        for i in range(len(lines)):
-            if i == 0:
-                characters.append(lines[i])
-            elif lines[i] == ";":
-                characters.append(characters[i - 1] + "\n")
-            # on the last character, add an empty string to the last keyframe
-            # elif i == len(lines) - 1:
-            #     characters.append(characters[i - 1] + "")
-            else:
-                characters.append(characters[i - 1] + lines[i])
-
-    
-    display_time = [] # keyframes
-    for i in range(len(characters)):
-        if i == 0:
-            display_time.append(0)
-        elif lines[i] == ";":
-            display_time.append(display_time[i - 1] + (duration / 1000) / len(lines) + (pause / 1000))
-        # on the last character, add the pause time to the last keyframe
-        elif i == len(lines):
-            print("last character", lines[i])
-            display_time.append(display_time[i - 1] + (duration / 1000) / len(lines) + (pause / 1000))
-        else:
-            display_time.append(display_time[i - 1] + (duration / 1000) / len(lines))
-
-    draw.native_animation.animate_text_sequence(
-        d,
-        display_time,
-        characters,
-        size,
-        x,
-        y,
-        font_family=font,
-        font_weight=weight,
-        font_style=style,
-        fill=f"#{color}",
-        center=center,
-    )
-
-    def iter():
-        yield d.as_svg()
-    
-    return StreamingResponse(iter(), media_type="image/svg+xml")
+        def iter():
+            yield d.as_svg()
+            
+        return StreamingResponse(iter(), media_type="image/svg+xml")
